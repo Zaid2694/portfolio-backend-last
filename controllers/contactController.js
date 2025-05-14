@@ -4,26 +4,40 @@ import Message from '../models/Message.js'; // Agar tumne model banaya hai
 export const submitMessage = async (req, res) => {
   const { name, email, subject, message, recaptchaToken } = req.body;
 
-  // reCAPTCHA verification
-  const recaptchaResponse = await fetch(
-    `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET_KEY}&response=${recaptchaToken}`,
-    {
-      method: 'POST',
-    }
-  );
-
-  const recaptchaData = await recaptchaResponse.json();
-  if (!recaptchaData.success) {
-    return res.status(400).json({ error: 'reCAPTCHA verification failed' });
+  // Validate request body
+  if (!name || !email || !message || !recaptchaToken) {
+    return res.status(400).json({ error: 'All fields are required, including reCAPTCHA token' });
   }
 
-  // Save message to MongoDB
+  // Verify reCAPTCHA
   try {
+    if (!process.env.RECAPTCHA_SECRET_KEY) {
+      return res.status(500).json({ error: 'reCAPTCHA secret key is not configured' });
+    }
+
+    const recaptchaResponse = await fetch(
+      `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET_KEY}&response=${recaptchaToken}`,
+      {
+        method: 'POST',
+      }
+    );
+
+    const recaptchaData = await recaptchaResponse.json();
+    console.log('reCAPTCHA Verification Response:', recaptchaData); // Debug log
+    if (!recaptchaData.success) {
+      return res.status(400).json({
+        error: 'reCAPTCHA verification failed',
+        details: recaptchaData['error-codes'] || 'Unknown error',
+      });
+    }
+
+    // Save message to MongoDB
     const newMessage = new Message({ name, email, subject, message });
     await newMessage.save();
-    res.status(200).json({ message: "Message submitted successfully" });
+    res.status(200).json({ message: 'Message submitted successfully' });
   } catch (error) {
-    res.status(500).json({ error: "Failed to submit message" });
+    console.log('Error in submitMessage:', error); // Debug log
+    res.status(500).json({ error: 'Failed to submit message', details: error.message });
   }
 };
 
@@ -32,6 +46,7 @@ export const getMessages = async (req, res) => {
     const messages = await Message.find().sort({ createdAt: -1 });
     res.status(200).json(messages);
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch messages" });
+    console.log('Error in getMessages:', error); // Debug log
+    res.status(500).json({ error: 'Failed to fetch messages', details: error.message });
   }
 };
