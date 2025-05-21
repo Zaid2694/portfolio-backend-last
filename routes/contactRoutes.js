@@ -5,6 +5,7 @@ import Message from "../models/Message.js";
 
 const router = express.Router();
 
+// Handle file upload with form data
 router.post("/contact", submitMessage);
 
 // Secure admin-only routes
