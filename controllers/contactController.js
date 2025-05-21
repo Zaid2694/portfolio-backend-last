@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import nodemailer from 'nodemailer';
 import Message from '../models/Message.js';
 
 // Utility function to fetch with timeout
@@ -27,11 +28,36 @@ const fetchWithRetry = async (url, options, retries = 2, delay = 1000) => {
       return response;
     } catch (error) {
       if (attempt === retries) {
-        throw error; // If last retry fails, throw the error
+        throw error;
       }
       console.log(`Attempt ${attempt} failed. Retrying after ${delay}ms...`, error.message);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
+  }
+};
+
+// Nodemailer setup
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+const sendEmailNotification = async (name, email, subject, message) => {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: process.env.RECEIVER_EMAIL,
+    subject: `New Contact Form Submission: ${subject || 'No Subject'}`,
+    text: `You have a new message from ${name} (${email}):\n\n${message}`,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('Email notification sent successfully');
+  } catch (error) {
+    console.error('Error sending email:', error);
   }
 };
 
@@ -47,16 +73,16 @@ export const submitMessage = async (req, res) => {
       return res.status(500).json({ error: 'reCAPTCHA secret key is not configured' });
     }
 
-    console.log('Sending reCAPTCHA request with secret:', process.env.RECAPTCHA_SECRET_KEY); // Debug
+    console.log('Sending reCAPTCHA request with secret:', process.env.RECAPTCHA_SECRET_KEY);
     const recaptchaResponse = await fetchWithRetry(
       `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET_KEY}&response=${recaptchaToken}`,
       { method: 'POST' },
-      2, // Retry 2 times
-      1000 // Delay of 1 second between retries
+      2,
+      1000
     );
-    console.log('reCAPTCHA HTTP Status:', recaptchaResponse.status); // Debug
+    console.log('reCAPTCHA HTTP Status:', recaptchaResponse.status);
     const recaptchaData = await recaptchaResponse.json();
-    console.log('reCAPTCHA Verification Response:', recaptchaData); // Debug
+    console.log('reCAPTCHA Verification Response:', recaptchaData);
 
     if (!recaptchaData.success) {
       return res.status(400).json({
@@ -67,9 +93,13 @@ export const submitMessage = async (req, res) => {
 
     const newMessage = new Message({ name, email, subject, message });
     await newMessage.save();
+
+    // Send email notification
+    await sendEmailNotification(name, email, subject, message);
+
     res.status(200).json({ message: 'Message submitted successfully' });
   } catch (error) {
-    console.log('Error in submitMessage:', error.message); // Detailed error message
+    console.log('Error in submitMessage:', error.message);
     if (error.name === 'AbortError') {
       res.status(503).json({ error: 'reCAPTCHA verification timed out', details: 'Request to Google API timed out' });
     } else {
@@ -83,7 +113,7 @@ export const getMessages = async (req, res) => {
     const messages = await Message.find().sort({ createdAt: -1 });
     res.status(200).json(messages);
   } catch (error) {
-    console.log('Error in getMessages:', error); // Debug
+    console.log('Error in getMessages:', error);
     res.status(500).json({ error: 'Failed to fetch messages', details: error.message });
   }
 };
